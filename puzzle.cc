@@ -22,7 +22,7 @@ std::vector<std::string> getFiveLetterWordsFromFile(const std::string& fileName)
 
   std::vector<std::string> strings;
   for (std::string str; std::getline(in, str);) {
-    if (str.size() == 5) {
+    if (str.size() == 5) {  // ust 5 letter words
       strings.push_back(str);
     }
   }
@@ -52,6 +52,7 @@ int count = 0;
 std::vector<std::vector<uint32_t>> find_solutions(const uint32_t state, const std::vector<uint32_t>& strings,
                                                   const std::vector<uint32_t>& map,
                                                   const std::vector<uint32_t>& map_min, const uint32_t endm) {
+  // Handle the "base" cases...
   if (std::popcount(state) == 26) {
     ++count;
     return std::vector<std::vector<uint32_t>>{{}};
@@ -65,7 +66,7 @@ std::vector<std::vector<uint32_t>> find_solutions(const uint32_t state, const st
 
   const uint32_t end = std::min(map[state] + 1, endm);
   const uint32_t begin = map_min[state];
-
+  // Only try words in the range found to optimice search time a bit.
   for (const auto p : std::span(strings.begin() + begin, strings.begin() + end)) {
     if ((p & state) == 0) {
       const uint32_t pos = state | p;
@@ -87,6 +88,8 @@ std::vector<std::vector<uint32_t>> find_solutions(const std::vector<uint32_t>& s
                                                   const std::vector<uint32_t>& map_min) {
   const uint32_t endm = strings.size();
   auto solutions = find_solutions(0, strings, map, map_min, endm);
+
+  // Remove all permutations that might have been found.
   for (auto& s : solutions) {
     std::sort(s.begin(), s.end(), std::greater<>());
   }
@@ -96,6 +99,7 @@ std::vector<std::vector<uint32_t>> find_solutions(const std::vector<uint32_t>& s
   return solutions;
 }
 
+// Recursivly print all possible anagrams
 void print_solution(const std::span<const uint32_t>& solution,
                     const std::multimap<uint32_t, std::string>& string_mapping, std::string str) {
   if (solution.size() == 0) {
@@ -110,14 +114,17 @@ void print_solution(const std::span<const uint32_t>& solution,
 }
 
 void find_strings(const std::vector<uint32_t>& strings, const std::multimap<uint32_t, std::string>& string_mapping) {
-  std::vector<uint32_t> map(1 << 26, NO_MATCH);
-  std::vector<uint32_t> map_min(1 << 26, 0);
-  std::vector<uint32_t> states;
+  std::vector<uint32_t> map(1 << 26, NO_MATCH);  //  largest position of any string entering this state
+  std::vector<uint32_t> map_min(1 << 26, 0);     // smallest position of any string entering this state
+  std::vector<uint32_t> states;                  // States with a solution
+
   states.reserve(1 << 25);
 
+  // Add all letters used as a solution, tecnicaly not needed here, but usfull when running other combinations.
   states.push_back(WIN);
   map[WIN] = 26;
 
+  // Add letters as solutions
   for (uint32_t i = 0; i < 26; ++i) {
     const uint32_t pos = WIN ^ (1 << i);
     states.push_back(pos);
@@ -125,23 +132,27 @@ void find_strings(const std::vector<uint32_t>& strings, const std::multimap<uint
   }
 
   std::vector<uint32_t> possibleStrings;
-
-  for (std::size_t i = 0; i != states.size(); ++i) {
+  for (std::size_t i = 1; i != states.size(); ++i) {  // start at one since we know we need one of the letters...
     const uint32_t state = states[i];
+
+    // Print some information about where wea are every so often
     if (i % 100000 == 0) {
       std::cerr << "\ri: " << i << " states: " << states.size() << " state " << std::bitset<26>(state) << " count "
                 << std::popcount(state) << "        " << std::flush;
     }
+
+    // Try all strings larger than the larrgest match currently found
     for (std::size_t si = map[state]; si != strings.size(); ++si) {
       const auto string = strings.at(si);
-      if (string == (state & string)) {
+      if (string == (state & string)) {  // Does the letters in teh string overlap with the current state
         const uint32_t pos = state ^ string;
-        if (pos < (1 << 26)) {
-          if (map[pos] == NO_MATCH) {
+        if (pos < (1 << 26)) {         // Check that it is not a single letter :)
+          if (map[pos] == NO_MATCH) {  // Have we found a new state?
             map[pos] = si;
             map_min[pos] = map[state];
             states.emplace_back(pos);
           } else {
+            // Try to optimize the information...
             if (map[pos] < si) {
               map[pos] = si;
             }

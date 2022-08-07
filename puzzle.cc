@@ -46,23 +46,35 @@ uint32_t toInteger(const std::string& str) {
 }
 
 const uint32_t WIN = (1 << 26) - 1;
+const uint32_t NO_MATCH = ~0;
+int count = 0;
 
-std::vector<std::vector<uint32_t>> find_solutions(const uint32_t state, const std::vector<uint32_t>& possible,
-                                                  const std::vector<uint32_t>& map) {
-  if (std::popcount(state) == 25 && map[state] != 0) {
-    return std::vector<std::vector<uint32_t>>{{map[state]}};
+std::vector<std::vector<uint32_t>> find_solutions(const uint32_t state, const std::vector<uint32_t>& strings,
+                                                  const std::vector<uint32_t>& map,
+                                                  const std::vector<uint32_t>& map_min, const uint32_t endm) {
+  if (std::popcount(state) == 26) {
+    ++count;
+    return std::vector<std::vector<uint32_t>>{{}};
+  }
+
+  if (std::popcount(state) == 25) {
+    ++count;
+    return std::vector<std::vector<uint32_t>>{{strings[map[state]]}};
   }
   std::vector<std::vector<uint32_t>> ret;
 
-  for (const uint32_t p : possible) {
+  const uint32_t end = std::min(map[state] + 1, endm);
+  const uint32_t begin = map_min[state];
+
+  for (const auto p : std::span(strings.begin() + begin, strings.begin() + end)) {
     if ((p & state) == 0) {
       const uint32_t pos = state | p;
-
-      // if (pos != state && map[pos] != 0) {
-      auto paths = find_solutions(pos, possible, map);
-      for (auto& path : paths) {
-        path.emplace_back(p);
-        ret.emplace_back(path);
+      if (pos < (1 << 26) && map[pos] != NO_MATCH) {
+        auto paths = find_solutions(pos, strings, map, map_min, endm);
+        for (auto& path : paths) {
+          path.emplace_back(p);
+          ret.emplace_back(path);
+        }
       }
     }
   }
@@ -70,9 +82,11 @@ std::vector<std::vector<uint32_t>> find_solutions(const uint32_t state, const st
   return ret;
 }
 
-std::vector<std::vector<uint32_t>> find_solutions(const std::vector<uint32_t>& possible,
-                                                  const std::vector<uint32_t>& map) {
-  auto solutions = find_solutions(0, possible, map);
+std::vector<std::vector<uint32_t>> find_solutions(const std::vector<uint32_t>& strings,
+                                                  const std::vector<uint32_t>& map,
+                                                  const std::vector<uint32_t>& map_min) {
+  const uint32_t endm = strings.size();
+  auto solutions = find_solutions(0, strings, map, map_min, endm);
   for (auto& s : solutions) {
     std::sort(s.begin(), s.end(), std::greater<>());
   }
@@ -83,10 +97,9 @@ std::vector<std::vector<uint32_t>> find_solutions(const std::vector<uint32_t>& p
 }
 
 void print_solution(const std::span<const uint32_t>& solution,
-                    const std::multimap<uint32_t, std::string>& string_mapping,
-		    std::string str) {
+                    const std::multimap<uint32_t, std::string>& string_mapping, std::string str) {
   if (solution.size() == 0) {
-    str.back()='\n';
+    str.back() = '\n';
     std::cout << str;
     return;
   }
@@ -97,35 +110,45 @@ void print_solution(const std::span<const uint32_t>& solution,
 }
 
 void find_strings(const std::vector<uint32_t>& strings, const std::multimap<uint32_t, std::string>& string_mapping) {
-  std::vector<uint32_t> map(1 << 26);
+  std::vector<uint32_t> map(1 << 26, NO_MATCH);
+  std::vector<uint32_t> map_min(1 << 26, 0);
   std::vector<uint32_t> states;
   states.reserve(1 << 25);
 
   states.push_back(WIN);
-  map[WIN] = WIN;
+  map[WIN] = 26;
 
   for (uint32_t i = 0; i < 26; ++i) {
     const uint32_t pos = WIN ^ (1 << i);
-
     states.push_back(pos);
-    map[pos] = (1 << i) | (1 << 26);
+    map[pos] = i;
   }
 
   std::vector<uint32_t> possibleStrings;
 
-  for (std::size_t i = 1; i != states.size(); ++i) {
+  for (std::size_t i = 0; i != states.size(); ++i) {
     const uint32_t state = states[i];
     if (i % 100000 == 0) {
-      std::cout << "\ri: " << i << " states: " << states.size() << " state " << std::bitset<26>(state) << " count "
+      std::cerr << "\ri: " << i << " states: " << states.size() << " state " << std::bitset<26>(state) << " count "
                 << std::popcount(state) << "        " << std::flush;
     }
-
-    for (const auto string : strings) {
+    for (std::size_t si = map[state]; si != strings.size(); ++si) {
+      const auto string = strings.at(si);
       if (string == (state & string)) {
         const uint32_t pos = state ^ string;
-        if (map[pos] == 0) {
-          map[pos] = string;
-          states.emplace_back(pos);
+        if (pos < (1 << 26)) {
+          if (map[pos] == NO_MATCH) {
+            map[pos] = si;
+            map_min[pos] = map[state];
+            states.emplace_back(pos);
+          } else {
+            if (map[pos] < si) {
+              map[pos] = si;
+            }
+            if (map_min[pos] > map[state]) {
+              map_min[pos] = map[state];
+            }
+          }
         }
         if (state == string) {
           possibleStrings.emplace_back(string);
@@ -134,22 +157,19 @@ void find_strings(const std::vector<uint32_t>& strings, const std::multimap<uint
     }
   }
 
-  // // Print solvable words...
-  // for (const uint32_t p : possibleStrings) {
-  //   const auto& range = string_mapping.equal_range(p);
-  //   for (auto i = range.first; i != range.second; ++i) {
-  //     std::cout << std::bitset<26>(i->first) << ": " << i->second << '\n';
-  //   }
-  // }
-
   std::cout << "size: " << states.size() << "\n";
   std::cout << "map[0]: " << std::bitset<26>(map[0]) << "\n";
-  const auto& solutions = find_solutions(possibleStrings, map);
+  std::cout << "possible: " << possibleStrings.size() << "\n";
+  std::cout << "strings: " << strings.size() << "\n";
+  const auto& solutions = find_solutions(strings, map, map_min);
   std::cout << "solutions: " << solutions.size() << "\n";
   for (const auto& s : solutions) {
     print_solution(s, string_mapping, "");
   }
+  std::cout << "solutions: " << solutions.size() << "\n";
+  std::cout << "count: " << count << "\n";
 }
+
 }  // namespace
 
 int main() {
@@ -158,6 +178,10 @@ int main() {
   std::multimap<uint32_t, std::string> string_mapping;
   std::vector<uint32_t> integer_strings;
 
+  for (uint32_t i = 0; i < 26; ++i) {
+    string_mapping.emplace((1 << i) | (1 << 26), std::string(1, 'a' + i));
+    integer_strings.emplace_back((1 << i) | (1 << 26));
+  }
   for (std::string& str : strings) {
     const auto integer = toInteger(str);
     if (std::cmp_equal(std::popcount(integer), str.size())) {
@@ -166,12 +190,8 @@ int main() {
     }
   }
 
-  for (uint32_t i = 0; i < 26; ++i) {
-    string_mapping.emplace((1 << i) | (1 << 26), std::string(1, 'a' + i));
-  }
-
-  std::sort(integer_strings.begin(), integer_strings.end());
-  integer_strings.erase(std::unique(integer_strings.begin(), integer_strings.end()), integer_strings.end());
+  std::sort(integer_strings.begin() + 26, integer_strings.end());
+  integer_strings.erase(std::unique(integer_strings.begin() + 26, integer_strings.end()), integer_strings.end());
 
   find_strings(integer_strings, string_mapping);
 
